@@ -1,14 +1,12 @@
-/* 用户测试程序 */
+/* FlexiCache test program */
 
 #include "flexicache.h"
 
-/* ========== 外部符号（来自链接脚本） ========== */
+/* External symbols from linker script */
 extern char __stack_top;
 extern char __bss_start, __bss_end;
 
-/* ========== 测试函数（放在 DRAM 中） ========== */
-
-/* 这些函数会被放在 DRAM 中，需要通过 FlexiCache 动态加载 */
+/* Test functions (placed in DRAM, loaded on demand) */
 
 int fibonacci(int n) {
     if (n <= 1) return n;
@@ -27,8 +25,6 @@ int sum_array(const int *arr, int len) {
     }
     return sum;
 }
-
-/* 新增测试函数 - 用于展示更复杂的缓存行为 */
 
 int power(int base, int exp) {
     int result = 1;
@@ -69,7 +65,7 @@ int max_of_three(int a, int b, int c) {
     return max;
 }
 
-/* ========== 辅助函数 ========== */
+/* Helper functions */
 
 #define UART_BASE 0x10000000
 static void putc(char c) {
@@ -108,155 +104,152 @@ static void putdec(int val) {
     }
 }
 
-/* ========== 启动代码 ========== */
+/* Bootstrap code */
 
 void main(void);
 
 void _start(void) __attribute__((section(".text.start"), naked));
 
 void _start(void) {
-    /* 汇编启动代码 - 必须先设置栈指针！ */
+    /* Must setup stack pointer before any C code runs */
     asm volatile (
         ".option push\n"
         ".option norelax\n"
-        "la gp, __global_pointer$\n"  /* 设置全局指针 */
+        "la gp, __global_pointer$\n"
         ".option pop\n"
-        "la sp, __stack_top\n"         /* 设置栈指针 */
-        "call main\n"                  /* 调用main函数 */
-        "1: j 1b\n"                    /* 无限循环 */
+        "la sp, __stack_top\n"
+        "call main\n"
+        "1: j 1b\n"
         ::: "memory"
     );
 }
 
 void main(void) {
-    /* 1. 清空 BSS 段 */
+    /* Clear BSS */
     char *bss = &__bss_start;
     char *bss_end = &__bss_end;
     while (bss < bss_end) {
         *bss++ = 0;
     }
     
-    /* 2. 初始化 FlexiCache */
+    /* Initialize FlexiCache */
     puts("\n========================================\n");
-    puts("   FlexiCache 高级演示程序\n");
-    puts("   展示缓存命中、未命中和驱逐机制\n");
+    puts("   FlexiCache Demo\n");
+    puts("   Cache hit/miss behavior\n");
     puts("========================================\n");
     
     flexicache_init();
     
-    /* ===== 第一轮：首次调用（全部未命中） ===== */
-    puts("\n=== 第一轮：首次加载函数 ===\n");
+    /* Round 1: Initial loads (all miss) */
+    puts("\n=== Round 1: Initial loads ===\n");
     
-    puts("[1.1] fibonacci(10) - 预期：未命中\n");
+    puts("[1.1] fibonacci(10) - expect miss\n");
     int r1 = CALL_MANAGED(fibonacci, 10);
-    puts("结果: "); putdec(r1); puts("\n");
+    puts("Result: "); putdec(r1); puts("\n");
     
-    puts("[1.2] factorial(5) - 预期：未命中\n");
+    puts("[1.2] factorial(5) - expect miss\n");
     int r2 = CALL_MANAGED(factorial, 5);
-    puts("结果: "); putdec(r2); puts("\n");
+    puts("Result: "); putdec(r2); puts("\n");
     
-    puts("[1.3] power(2, 8) - 预期：未命中\n");
+    puts("[1.3] power(2, 8) - expect miss\n");
     int r3 = CALL_MANAGED(power, 2, 8);
-    puts("结果: "); putdec(r3); puts("\n");
+    puts("Result: "); putdec(r3); puts("\n");
     
-    /* ===== 第二轮：重复调用（应该命中） ===== */
-    puts("\n=== 第二轮：重复调用相同函数 ===\n");
+    /* Round 2: Repeat calls (should hit) */
+    puts("\n=== Round 2: Repeat calls ===\n");
     
-    puts("[2.1] fibonacci(12) - 预期：命中\n");
+    puts("[2.1] fibonacci(12) - expect hit\n");
     int r4 = CALL_MANAGED(fibonacci, 12);
-    puts("结果: "); putdec(r4); puts("\n");
+    puts("Result: "); putdec(r4); puts("\n");
     
-    puts("[2.2] factorial(7) - 预期：命中\n");
+    puts("[2.2] factorial(7) - expect hit\n");
     int r5 = CALL_MANAGED(factorial, 7);
-    puts("结果: "); putdec(r5); puts("\n");
+    puts("Result: "); putdec(r5); puts("\n");
     
-    puts("[2.3] power(3, 4) - 预期：命中\n");
+    puts("[2.3] power(3, 4) - expect hit\n");
     int r6 = CALL_MANAGED(power, 3, 4);
-    puts("结果: "); putdec(r6); puts("\n");
+    puts("Result: "); putdec(r6); puts("\n");
     
-    /* ===== 第三轮：添加新函数（继续加载） ===== */
-    puts("\n=== 第三轮：加载更多新函数 ===\n");
+    /* Round 3: Load more functions */
+    puts("\n=== Round 3: New functions ===\n");
     
     int arr[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    puts("[3.1] sum_array(10 elements) - 预期：未命中\n");
+    puts("[3.1] sum_array(10) - expect miss\n");
     int r7 = CALL_MANAGED(sum_array, arr, 10);
-    puts("结果: "); putdec(r7); puts("\n");
+    puts("Result: "); putdec(r7); puts("\n");
     
-    puts("[3.2] gcd(48, 18) - 预期：未命中\n");
+    puts("[3.2] gcd(48, 18) - expect miss\n");
     int r8 = CALL_MANAGED(gcd, 48, 18);
-    puts("结果: "); putdec(r8); puts("\n");
+    puts("Result: "); putdec(r8); puts("\n");
     
-    puts("[3.3] is_prime(17) - 预期：未命中\n");
+    puts("[3.3] is_prime(17) - expect miss\n");
     int r9 = CALL_MANAGED(is_prime, 17);
-    puts("结果: "); putdec(r9); puts("\n");
+    puts("Result: "); putdec(r9); puts("\n");
     
-    /* ===== 第四轮：混合调用（命中和未命中） ===== */
-    puts("\n=== 第四轮：混合调用测试 ===\n");
+    /* Round 4: Mixed calls */
+    puts("\n=== Round 4: Mixed calls ===\n");
     
-    puts("[4.1] fibonacci(8) - 预期：命中\n");
+    puts("[4.1] fibonacci(8) - expect hit\n");
     int r10 = CALL_MANAGED(fibonacci, 8);
-    puts("结果: "); putdec(r10); puts("\n");
+    puts("Result: "); putdec(r10); puts("\n");
     
-    puts("[4.2] multiply(12, 7) - 预期：未命中\n");
+    puts("[4.2] multiply(12, 7) - expect miss\n");
     int r11 = CALL_MANAGED(multiply, 12, 7);
-    puts("结果: "); putdec(r11); puts("\n");
+    puts("Result: "); putdec(r11); puts("\n");
     
-    puts("[4.3] gcd(100, 35) - 预期：命中\n");
+    puts("[4.3] gcd(100, 35) - expect hit\n");
     int r12 = CALL_MANAGED(gcd, 100, 35);
-    puts("结果: "); putdec(r12); puts("\n");
+    puts("Result: "); putdec(r12); puts("\n");
     
-    puts("[4.4] max_of_three(15, 42, 28) - 预期：未命中\n");
+    puts("[4.4] max_of_three(15, 42, 28) - expect miss\n");
     int r13 = CALL_MANAGED(max_of_three, 15, 42, 28);
-    puts("结果: "); putdec(r13); puts("\n");
+    puts("Result: "); putdec(r13); puts("\n");
     
-    /* ===== 第五轮：再次调用已加载函数（测试命中率） ===== */
-    puts("\n=== 第五轮：验证缓存命中 ===\n");
+    /* Round 5: Verify cache hits */
+    puts("\n=== Round 5: Verify hits ===\n");
     
-    puts("[5.1] sum_array - 预期：命中\n");
+    puts("[5.1] sum_array - expect hit\n");
     int r14 = CALL_MANAGED(sum_array, arr, 10);
-    puts("结果: "); putdec(r14); puts("\n");
+    puts("Result: "); putdec(r14); puts("\n");
     
-    puts("[5.2] power(5, 3) - 预期：命中\n");
+    puts("[5.2] power(5, 3) - expect hit\n");
     int r15 = CALL_MANAGED(power, 5, 3);
-    puts("结果: "); putdec(r15); puts("\n");
+    puts("Result: "); putdec(r15); puts("\n");
     
-    puts("[5.3] is_prime(23) - 预期：命中\n");
+    puts("[5.3] is_prime(23) - expect hit\n");
     int r16 = CALL_MANAGED(is_prime, 23);
-    puts("结果: "); putdec(r16); puts("\n");
+    puts("Result: "); putdec(r16); puts("\n");
     
-    /* 打印最终统计信息 */
     puts("\n");
     flexicache_print_stats();
     
-    /* 验证结果 */
-    puts("\n========== 验证测试结果 ==========\n");
+    /* Verify results */
+    puts("\n========== Test Results ==========\n");
     int all_correct = 1;
     
-    if (r1 != 55) { puts("✗ fibonacci(10) 错误\n"); all_correct = 0; }
-    if (r2 != 120) { puts("✗ factorial(5) 错误\n"); all_correct = 0; }
-    if (r3 != 256) { puts("✗ power(2,8) 错误\n"); all_correct = 0; }
-    if (r4 != 144) { puts("✗ fibonacci(12) 错误\n"); all_correct = 0; }
-    if (r5 != 5040) { puts("✗ factorial(7) 错误\n"); all_correct = 0; }
-    if (r6 != 81) { puts("✗ power(3,4) 错误\n"); all_correct = 0; }
-    if (r7 != 55) { puts("✗ sum_array 错误\n"); all_correct = 0; }
-    if (r8 != 6) { puts("✗ gcd(48,18) 错误\n"); all_correct = 0; }
-    if (r9 != 1) { puts("✗ is_prime(17) 错误\n"); all_correct = 0; }
-    if (r10 != 21) { puts("✗ fibonacci(8) 错误\n"); all_correct = 0; }
-    if (r11 != 84) { puts("✗ multiply(12,7) 错误\n"); all_correct = 0; }
-    if (r12 != 5) { puts("✗ gcd(100,35) 错误\n"); all_correct = 0; }
-    if (r13 != 42) { puts("✗ max_of_three 错误\n"); all_correct = 0; }
-    if (r14 != 55) { puts("✗ sum_array(2) 错误\n"); all_correct = 0; }
-    if (r15 != 125) { puts("✗ power(5,3) 错误\n"); all_correct = 0; }
-    if (r16 != 1) { puts("✗ is_prime(23) 错误\n"); all_correct = 0; }
+    if (r1 != 55) { puts("X fibonacci(10) failed\n"); all_correct = 0; }
+    if (r2 != 120) { puts("X factorial(5) failed\n"); all_correct = 0; }
+    if (r3 != 256) { puts("X power(2,8) failed\n"); all_correct = 0; }
+    if (r4 != 144) { puts("X fibonacci(12) failed\n"); all_correct = 0; }
+    if (r5 != 5040) { puts("X factorial(7) failed\n"); all_correct = 0; }
+    if (r6 != 81) { puts("X power(3,4) failed\n"); all_correct = 0; }
+    if (r7 != 55) { puts("X sum_array failed\n"); all_correct = 0; }
+    if (r8 != 6) { puts("X gcd(48,18) failed\n"); all_correct = 0; }
+    if (r9 != 1) { puts("X is_prime(17) failed\n"); all_correct = 0; }
+    if (r10 != 21) { puts("X fibonacci(8) failed\n"); all_correct = 0; }
+    if (r11 != 84) { puts("X multiply(12,7) failed\n"); all_correct = 0; }
+    if (r12 != 5) { puts("X gcd(100,35) failed\n"); all_correct = 0; }
+    if (r13 != 42) { puts("X max_of_three failed\n"); all_correct = 0; }
+    if (r14 != 55) { puts("X sum_array(2) failed\n"); all_correct = 0; }
+    if (r15 != 125) { puts("X power(5,3) failed\n"); all_correct = 0; }
+    if (r16 != 1) { puts("X is_prime(23) failed\n"); all_correct = 0; }
     
     if (all_correct) {
-        puts("✓ 所有 16 个测试全部通过！\n");
+        puts("All 16 tests passed!\n");
     } else {
-        puts("✗ 部分测试失败！\n");
+        puts("Some tests failed!\n");
     }
     
-    puts("\n程序执行完成。按 Ctrl+A, X 退出 QEMU。\n");
-    
-    /* 无限循环（在_start中处理） */
+    puts("\nDone. Press Ctrl+A, X to exit QEMU.\n");
 }
 
