@@ -1,10 +1,10 @@
-# 构建包含 RISC-V 工具链和 QEMU 的 Docker 镜像
+# Docker image containing RISC-V toolchain and QEMU
 FROM ubuntu:22.04
 
-# 避免交互式安装
+# Avoid interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 安装必要的工具
+# Install necessary tools
 RUN apt-get update && apt-get install -y \
     gcc-riscv64-unknown-elf \
     qemu-system-misc \
@@ -13,12 +13,11 @@ RUN apt-get update && apt-get install -y \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
+# Set working directory
 WORKDIR /workspace
 
-# 复制项目文件
+# Copy project files
 COPY . .
 
-# 默认启动 bash
+# Default to bash
 CMD ["/bin/bash"]
-

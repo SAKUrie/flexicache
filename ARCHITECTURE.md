@@ -1,61 +1,61 @@
-# FlexiCache 架构设计文档
+# FlexiCache Architecture Design Document
 
-## 📐 系统架构概览
+## 📐 System Architecture Overview
 
-FlexiCache 是一个运行在 RISC-V QEMU 环境中的动态代码管理系统原型，模拟了在异构内存系统中的代码搬运机制。
+FlexiCache is a dynamic code management system prototype running in the RISC-V QEMU environment, simulating the code transfer mechanism in heterogeneous memory systems.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    QEMU RISC-V (virt 板)                     │
+│                    QEMU RISC-V (virt board)                  │
 │                                                               │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │            物理内存 (起始: 0x80000000)                 │  │
+│  │            Physical Memory (Start: 0x80000000)         │  │
 │  │                                                         │  │
 │  │  ┌──────────────────────────────────────────────────┐ │  │
-│  │  │  I-Mem (快速指令内存)                            │ │  │
+│  │  │  I-Mem (Fast Instruction Memory)                 │ │  │
 │  │  │  0x80000000 - 0x800FFFFF (1MB)                   │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  运行时库代码 (flexicache.c)               │  │ │  │
+│  │  │  │  Runtime Library Code (flexicache.c)      │  │ │  │
 │  │  │  │  - flexicache_init()                       │  │ │  │
 │  │  │  │  - flexicache_load_block()                 │  │ │  │
 │  │  │  │  - flexicache_evict_block()                │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  动态缓存区 (从 0x80010000 开始)          │  │ │  │
-│  │  │  │  - 运行时加载的用户代码                   │  │ │  │
+│  │  │  │  Dynamic Cache Area (from 0x80010000)     │  │ │  │
+│  │  │  │  - Runtime loaded user code               │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  └──────────────────────────────────────────────────┘ │  │
 │  │                                                         │  │
 │  │  ┌──────────────────────────────────────────────────┐ │  │
-│  │  │  DRAM (慢速主存)                                 │ │  │
+│  │  │  DRAM (Slow Main Memory)                         │ │  │
 │  │  │  0x80100000 - 0x801FFFFF (1MB)                   │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  用户代码 (.text.user)                     │  │ │  │
+│  │  │  │  User Code (.text.user)                    │  │ │  │
 │  │  │  │  - fibonacci()                             │  │ │  │
 │  │  │  │  - factorial()                             │  │ │  │
 │  │  │  │  - sum_array()                             │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  数据段 (.data, .bss)                      │  │ │  │
+│  │  │  │  Data Segment (.data, .bss)                │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  堆 (64KB)                                  │  │ │  │
+│  │  │  │  Heap (64KB)                               │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  │  ┌────────────────────────────────────────────┐  │ │  │
-│  │  │  │  栈 (64KB) ↓ 向下增长                       │  │ │  │
+│  │  │  │  Stack (64KB) ↓ Grows downward             │  │ │  │
 │  │  │  └────────────────────────────────────────────┘  │ │  │
 │  │  └──────────────────────────────────────────────────┘ │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🔑 核心设计决策
+## 🔑 Core Design Decisions
 
-### 1. 为什么用链接脚本而不是真实硬件？
+### 1. Why Use Linker Script Instead of Real Hardware?
 
-**问题**: 真实的异构内存系统（如 I-Mem + DRAM）在 QEMU 中难以模拟。
+**Problem**: Real heterogeneous memory systems (like I-Mem + DRAM) are difficult to simulate in QEMU.
 
-**解决方案**: 使用链接脚本 `flexicache.ld` 将统一的物理内存"虚拟地"切分成两个区域：
+**Solution**: Use linker script `flexicache.ld` to "virtually" partition unified physical memory into two regions:
 
 ```ld
 MEMORY {
@@ -64,18 +64,18 @@ MEMORY {
 }
 ```
 
-**优势**:
-- ✅ 无需修改 QEMU 源码
-- ✅ 可以用标准工具链编译
-- ✅ 在报告中足以证明"运行时搬运逻辑"的可行性
+**Advantages**:
+- ✅ No need to modify QEMU source code
+- ✅ Can compile with standard toolchain
+- ✅ Sufficient to prove "runtime transfer logic" feasibility in reports
 
-### 2. 为什么用宏而不是二进制重写器？
+### 2. Why Use Macros Instead of Binary Rewriter?
 
-**问题**: 完整的系统需要一个预处理器，自动在函数调用前插入 `flexicache_load_block()`。
+**Problem**: A complete system needs a preprocessor to automatically insert `flexicache_load_block()` before function calls.
 
-**时间限制**: 3-4 天的工期无法实现完整的 ELF 二进制解析和修改器。
+**Time Constraint**: 3-4 days of development time cannot implement a complete ELF binary parser and modifier.
 
-**MVP 方案**: 使用 C 宏 `CALL_MANAGED` 模拟：
+**MVP Solution**: Use C macro `CALL_MANAGED` to simulate:
 
 ```c
 #define CALL_MANAGED(func, ...) ({ \
@@ -84,267 +84,267 @@ MEMORY {
 })
 ```
 
-**用法**:
+**Usage**:
 ```c
-// 原始调用
+// Original call
 int result = fibonacci(10);
 
-// FlexiCache 管理的调用
+// FlexiCache managed call
 int result = CALL_MANAGED(fibonacci, 10);
 ```
 
-**未来扩展**: 可以用 Python + `pyelftools` 实现真正的二进制重写器。
+**Future Extension**: Can implement real binary rewriter using Python + `pyelftools`.
 
-### 3. 运行时库的职责
+### 3. Runtime Library Responsibilities
 
-`runtime/flexicache.c` 是整个系统的核心，负责：
+`runtime/flexicache.c` is the core of the entire system, responsible for:
 
-#### 3.1 初始化 (`flexicache_init`)
-- 设置 I-Mem 分配器（从 `0x80010000` 开始可用）
-- 初始化统计计数器
-- 通过 UART 输出调试信息
+#### 3.1 Initialization (`flexicache_init`)
+- Set up I-Mem allocator (available from `0x80010000`)
+- Initialize statistics counters
+- Output debug information via UART
 
-#### 3.2 代码加载 (`flexicache_load_block`)
+#### 3.2 Code Loading (`flexicache_load_block`)
 
-**流程图**:
+**Flowchart**:
 ```
-开始
+Start
   ↓
-检查函数地址是否在 I-Mem？
-  ├─ 是 → 命中 ✓ → 返回 0
-  └─ 否 → 未命中 ✗
+Is function address in I-Mem?
+  ├─ Yes → Hit ✓ → Return 0
+  └─ No → Miss ✗
            ↓
-      检查地址是否在 DRAM？
-           ├─ 否 → 错误 → 返回 -1
-           └─ 是 ↓
-           I-Mem 空间是否足够？
-                ├─ 否 → 驱逐旧代码 (evict_block)
-                └─ 是 ↓
+      Is address in DRAM?
+           ├─ No → Error → Return -1
+           └─ Yes ↓
+           Is I-Mem space sufficient?
+                ├─ No → Evict old code (evict_block)
+                └─ Yes ↓
            memcpy(target, src, size)
                 ↓
-           更新分配器指针
+           Update allocator pointer
                 ↓
-           fence.i (刷新指令缓存)
+           fence.i (Flush instruction cache)
                 ↓
-           更新统计信息
+           Update statistics
                 ↓
-           返回 0
+           Return 0
 ```
 
-#### 3.3 驱逐策略 (`flexicache_evict_block`)
+#### 3.3 Eviction Policy (`flexicache_evict_block`)
 
-**当前实现**: 简单清空整个 I-Mem 缓存区（除了运行时库）
+**Current Implementation**: Simply clears entire I-Mem cache area (except runtime library)
 
-**理由**: MVP 阶段优先验证"搬运逻辑"可行性
+**Rationale**: MVP phase prioritizes validating "transfer logic" feasibility
 
-**未来改进**:
+**Future Improvements**:
 - LRU (Least Recently Used)
 - FIFO (First In First Out)
-- 基于函数调用频率的智能预取
+- Intelligent prefetch based on function call frequency
 
-## 📊 关键数据结构
+## 📊 Key Data Structures
 
-### 统计信息 (`flexicache_stats_t`)
+### Statistics (`flexicache_stats_t`)
 
 ```c
 typedef struct {
-    uint32_t load_count;      // 加载次数
-    uint32_t evict_count;     // 驱逐次数
-    uint32_t hit_count;       // 命中次数
-    uint32_t miss_count;      // 未命中次数
-    uint32_t total_bytes;     // 总搬运字节数
+    uint32_t load_count;      // Load count
+    uint32_t evict_count;     // Eviction count
+    uint32_t hit_count;       // Hit count
+    uint32_t miss_count;      // Miss count
+    uint32_t total_bytes;     // Total transferred bytes
 } flexicache_stats_t;
 ```
 
-### I-Mem 分配器 (`imem_allocator_t`)
+### I-Mem Allocator (`imem_allocator_t`)
 
 ```c
 typedef struct {
-    void *start;              // 当前可用空间起始地址
-    size_t available;         // 剩余可用空间
+    void *start;              // Current available space start address
+    size_t available;         // Remaining available space
 } imem_allocator_t;
 ```
 
-## 🔄 完整执行流程
+## 🔄 Complete Execution Flow
 
-### 启动阶段
-
-```
-1. QEMU 加载 flexicache_demo.elf
-2. CPU 跳转到 _start (定义在 main.c)
-3. _start 初始化栈指针: sp = 0x801FXXXX
-4. _start 清空 BSS 段
-5. 调用 flexicache_init()
-   ├─ 初始化 I-Mem 分配器
-   ├─ 清空统计信息
-   └─ 打印初始化消息
-```
-
-### 函数调用阶段
+### Startup Phase
 
 ```
-用户代码: int result = CALL_MANAGED(fibonacci, 10);
+1. QEMU loads flexicache_demo.elf
+2. CPU jumps to _start (defined in main.c)
+3. _start initializes stack pointer: sp = 0x801FXXXX
+4. _start clears BSS segment
+5. Call flexicache_init()
+   ├─ Initialize I-Mem allocator
+   ├─ Clear statistics
+   └─ Print initialization message
+```
 
-展开宏:
+### Function Call Phase
+
+```
+User code: int result = CALL_MANAGED(fibonacci, 10);
+
+Macro expansion:
   flexicache_load_block((void*)fibonacci, 256);
   ↓
-  检查 fibonacci 地址 (0x801XXXXX) 是否在 I-Mem？
-  ↓ 否 (首次调用)
+  Check if fibonacci address (0x801XXXXX) is in I-Mem?
+  ↓ No (first call)
   ↓
-  分配 I-Mem 空间: target = 0x80010000
+  Allocate I-Mem space: target = 0x80010000
   ↓
   memcpy(0x80010000, 0x801XXXXX, 256)
   ↓
-  fence.i (同步指令流)
+  fence.i (Synchronize instruction stream)
   ↓
   miss_count++, load_count++, total_bytes += 256
   ↓
-  返回 0
+  Return 0
   
-  fibonacci(10);  // 执行函数
+  fibonacci(10);  // Execute function
 ```
 
-### 再次调用同一函数
+### Calling Same Function Again
 
 ```
-第二次: int result = CALL_MANAGED(fibonacci, 15);
+Second time: int result = CALL_MANAGED(fibonacci, 15);
 
 flexicache_load_block((void*)fibonacci, 256);
   ↓
-  检查 fibonacci 地址是否在 I-Mem？
-  ↓ 是 (已加载)
+  Check if fibonacci address is in I-Mem?
+  ↓ Yes (already loaded)
   ↓
   hit_count++
   ↓
-  直接返回 0 (无需搬运)
+  Return 0 directly (no transfer needed)
 
-fibonacci(15);  // 执行函数
+fibonacci(15);  // Execute function
 ```
 
-## 🛠️ 编译工具链
+## 🛠️ Compilation Toolchain
 
-### GCC 编译选项详解
+### GCC Compilation Options Explained
 
 ```makefile
 CFLAGS = -march=rv32ima -mabi=ilp32 -O2 -g -Wall -Wextra
 ```
 
-| 选项 | 含义 |
-|------|------|
-| `-march=rv32ima` | 目标架构：32位 RISC-V，支持整数(I)、乘法(M)、原子(A)指令 |
-| `-mabi=ilp32` | ABI：整数、长整数、指针都是32位 |
-| `-O2` | 优化级别：平衡性能和调试能力 |
-| `-g` | 包含调试信息 |
-| `-static` | 静态链接 |
-| `-nostdlib` | 不链接标准库 |
-| `-nostartfiles` | 不使用标准启动文件 |
-| `-ffreestanding` | 裸机环境 |
+| Option | Meaning |
+|--------|---------|
+| `-march=rv32ima` | Target architecture: 32-bit RISC-V, supports Integer(I), Multiply(M), Atomic(A) instructions |
+| `-mabi=ilp32` | ABI: Integer, Long, Pointer are all 32-bit |
+| `-O2` | Optimization level: Balance performance and debug capability |
+| `-g` | Include debug information |
+| `-static` | Static linking |
+| `-nostdlib` | Don't link standard library |
+| `-nostartfiles` | Don't use standard startup files |
+| `-ffreestanding` | Bare-metal environment |
 
-### 链接选项
+### Link Options
 
 ```makefile
 LDFLAGS = -T scripts/flexicache.ld -Wl,-Map=flexicache_demo.map
 ```
 
-- `-T scripts/flexicache.ld`: 使用自定义链接脚本
-- `-Wl,-Map=...`: 生成内存映射文件（用于调试）
+- `-T scripts/flexicache.ld`: Use custom linker script
+- `-Wl,-Map=...`: Generate memory map file (for debugging)
 
-## 📏 内存布局详解
+## 📏 Memory Layout Details
 
-### I-Mem 区域 (0x80000000 - 0x800FFFFF)
+### I-Mem Region (0x80000000 - 0x800FFFFF)
 
-| 偏移 | 大小 | 内容 | 说明 |
-|------|------|------|------|
-| 0x00000000 | ~64KB | 运行时库代码 | 固定，不会被驱逐 |
-| 0x00010000 | ~960KB | 动态缓存区 | 用户代码的临时拷贝 |
+| Offset | Size | Content | Description |
+|--------|------|---------|-------------|
+| 0x00000000 | ~64KB | Runtime library code | Fixed, will not be evicted |
+| 0x00010000 | ~960KB | Dynamic cache area | Temporary copy of user code |
 
-### DRAM 区域 (0x80100000 - 0x801FFFFF)
+### DRAM Region (0x80100000 - 0x801FFFFF)
 
-| 段 | 大小 | 用途 |
-|----|------|------|
-| .text.user | 可变 | 用户函数的原始代码 |
-| .rodata | 可变 | 只读数据（字符串常量等） |
-| .data | 可变 | 已初始化全局变量 |
-| .bss | 可变 | 未初始化全局变量 |
-| .heap | 64KB | 动态内存分配 |
-| .stack | 64KB | 函数调用栈 |
+| Segment | Size | Purpose |
+|---------|------|---------|
+| .text.user | Variable | Original code of user functions |
+| .rodata | Variable | Read-only data (string constants, etc.) |
+| .data | Variable | Initialized global variables |
+| .bss | Variable | Uninitialized global variables |
+| .heap | 64KB | Dynamic memory allocation |
+| .stack | 64KB | Function call stack |
 
-## 🧪 测试覆盖
+## 🧪 Test Coverage
 
-### 测试用例
+### Test Cases
 
-| 测试 | 目的 | 预期行为 |
-|------|------|----------|
-| `fibonacci(10)` | 首次调用 | 未命中 → 加载到 I-Mem |
-| `fibonacci(15)` | 再次调用 | 命中 → 直接返回 |
-| `factorial(8)` | 新函数 | 未命中 → 加载到 I-Mem |
-| `sum_array()` | 带参数函数 | 未命中 → 加载到 I-Mem |
+| Test | Purpose | Expected Behavior |
+|------|---------|-------------------|
+| `fibonacci(10)` | First call | Miss → Load to I-Mem |
+| `fibonacci(15)` | Repeat call | Hit → Return directly |
+| `factorial(8)` | New function | Miss → Load to I-Mem |
+| `sum_array()` | Function with parameters | Miss → Load to I-Mem |
 
-### 验证逻辑
+### Validation Logic
 
 ```c
 if (result1 == 55 && result2 == 610 && 
     result3 == 40320 && result4 == 55) {
-    puts("✓ 所有测试通过！");
+    puts("✓ All tests passed!");
 }
 ```
 
-## 🚀 性能指标
+## 🚀 Performance Metrics
 
-### 理论分析
+### Theoretical Analysis
 
-假设：
-- I-Mem 访问延迟: 1 周期
-- DRAM 访问延迟: 100 周期
-- 代码搬运成本: N 字节 × 100 周期
+Assumptions:
+- I-Mem access latency: 1 cycle
+- DRAM access latency: 100 cycles
+- Code transfer cost: N bytes × 100 cycles
 
-**命中情况** (函数在 I-Mem):
+**Hit Scenario** (function in I-Mem):
 ```
-总延迟 = 函数执行时间 (使用 I-Mem 速度)
-```
-
-**未命中情况** (首次调用):
-```
-总延迟 = 搬运时间 + 函数执行时间
-       = (256 字节 × 100 周期) + 函数执行时间
-       = 25,600 周期 + 函数执行时间
+Total latency = Function execution time (using I-Mem speed)
 ```
 
-### 实测方法
+**Miss Scenario** (first call):
+```
+Total latency = Transfer time + Function execution time
+              = (256 bytes × 100 cycles) + Function execution time
+              = 25,600 cycles + Function execution time
+```
 
-可以通过 QEMU 的 `-icount` 选项统计指令数：
+### Practical Measurement Method
+
+Can count instructions via QEMU's `-icount` option:
 
 ```bash
 qemu-system-riscv32 -icount shift=0 -d exec,nochain ...
 ```
 
-## 🔮 未来扩展
+## 🔮 Future Extensions
 
-### 短期 (1-2 周)
+### Short-term (1-2 weeks)
 
-- [ ] 实现真正的 LRU 缓存替换
-- [ ] 添加 Python 脚本自动提取函数大小
-- [ ] 支持多级缓存 (L1-I, L2)
+- [ ] Implement real LRU cache replacement
+- [ ] Add Python script to automatically extract function sizes
+- [ ] Support multi-level cache (L1-I, L2)
 
-### 中期 (1-2 月)
+### Medium-term (1-2 months)
 
-- [ ] 实现二进制重写器 (Python + pyelftools)
-- [ ] 支持位置无关代码 (PIC)
-- [ ] 添加硬件性能计数器模拟
+- [ ] Implement binary rewriter (Python + pyelftools)
+- [ ] Support Position Independent Code (PIC)
+- [ ] Add hardware performance counter simulation
 
-### 长期 (3+ 月)
+### Long-term (3+ months)
 
-- [ ] 在真实 FPGA 板上验证
-- [ ] 支持多线程/多核
-- [ ] 机器学习驱动的智能预取
+- [ ] Validate on real FPGA board
+- [ ] Support multi-threading/multi-core
+- [ ] Machine learning driven intelligent prefetch
 
-## 📖 相关概念
+## 📖 Related Concepts
 
-### RISC-V `fence.i` 指令
+### RISC-V `fence.i` Instruction
 
-**作用**: 同步指令流和数据流
+**Purpose**: Synchronize instruction stream and data stream
 
-**场景**: 当我们修改代码段（如动态加载）后，必须执行 `fence.i`，否则 CPU 可能执行旧的缓存指令。
+**Scenario**: After we modify the code segment (e.g., dynamic loading), we must execute `fence.i`, otherwise CPU may execute old cached instructions.
 
 ```c
 void flexicache_flush_icache(void) {
@@ -352,29 +352,28 @@ void flexicache_flush_icache(void) {
 }
 ```
 
-### 链接脚本中的 `ALIGN`
+### `ALIGN` in Linker Script
 
 ```ld
 .text.user : ALIGN(4) { ... }
 ```
 
-确保段起始地址是 4 字节对齐，RISC-V 要求指令必须对齐。
+Ensures segment start address is 4-byte aligned, RISC-V requires instruction alignment.
 
-### QEMU virt 板
+### QEMU virt Board
 
-这是 QEMU 提供的通用虚拟开发板，特点：
-- RAM 起始地址: `0x80000000`
-- UART 地址: `0x10000000`
-- 支持设备树 (Device Tree)
+This is a general-purpose virtual development board provided by QEMU, features:
+- RAM start address: `0x80000000`
+- UART address: `0x10000000`
+- Supports Device Tree
 
-## 🎓 学习路径建议
+## 🎓 Suggested Learning Path
 
-1. **入门**: 运行示例 → 修改测试函数 → 观察统计信息
-2. **进阶**: 阅读链接脚本 → 理解内存布局 → 修改内存大小
-3. **深入**: 研究运行时库 → 实现 LRU 算法 → 添加性能分析
-4. **高级**: GDB 调试 → 反汇编分析 → 修改编译选项优化
+1. **Beginner**: Run examples → Modify test functions → Observe statistics
+2. **Intermediate**: Read linker script → Understand memory layout → Modify memory sizes
+3. **Advanced**: Study runtime library → Implement LRU algorithm → Add performance analysis
+4. **Expert**: GDB debugging → Disassembly analysis → Modify compilation options for optimization
 
 ---
 
-**设计理念**: 用最简单的方式验证核心思想，避免过早优化。
-
+**Design Philosophy**: Validate core ideas in the simplest way, avoid premature optimization.

@@ -1,29 +1,29 @@
 #!/bin/bash
-# FlexiCache 项目完整性验证脚本
+# FlexiCache Project Integrity Verification Script
 
 echo "========================================="
-echo "   FlexiCache 项目完整性检查"
+echo "   FlexiCache Project Integrity Check"
 echo "========================================="
 echo ""
 
-# 颜色定义
+# Color definitions
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# 检查计数
+# Check counters
 total_checks=0
 passed_checks=0
 
-# 检查函数
+# Check functions
 check_file() {
     total_checks=$((total_checks + 1))
     if [ -f "$1" ]; then
         echo -e "${GREEN}✓${NC} $1"
         passed_checks=$((passed_checks + 1))
     else
-        echo -e "${RED}✗${NC} $1 (缺失)"
+        echo -e "${RED}✗${NC} $1 (missing)"
     fi
 }
 
@@ -33,20 +33,20 @@ check_dir() {
         echo -e "${GREEN}✓${NC} $1/"
         passed_checks=$((passed_checks + 1))
     else
-        echo -e "${RED}✗${NC} $1/ (缺失)"
+        echo -e "${RED}✗${NC} $1/ (missing)"
     fi
 }
 
-# 1. 检查目录结构
-echo "1️⃣  检查目录结构"
+# 1. Check directory structure
+echo "1️⃣  Checking directory structure"
 echo "-------------------"
 check_dir "scripts"
 check_dir "runtime"
 check_dir "src"
 echo ""
 
-# 2. 检查核心文件
-echo "2️⃣  检查核心代码文件"
+# 2. Check core files
+echo "2️⃣  Checking core code files"
 echo "-------------------"
 check_file "Dockerfile"
 check_file "Makefile"
@@ -56,8 +56,8 @@ check_file "runtime/flexicache.h"
 check_file "src/main.c"
 echo ""
 
-# 3. 检查文档
-echo "3️⃣  检查文档文件"
+# 3. Check documentation
+echo "3️⃣  Checking documentation files"
 echo "-------------------"
 check_file "README.md"
 check_file "QUICKSTART.md"
@@ -65,8 +65,8 @@ check_file "ARCHITECTURE.md"
 check_file "PROJECT_SUMMARY.md"
 echo ""
 
-# 4. 检查文件内容（简单验证）
-echo "4️⃣  检查关键代码内容"
+# 4. Check file contents (simple validation)
+echo "4️⃣  Checking key code contents"
 echo "-------------------"
 
 check_content() {
@@ -79,18 +79,18 @@ check_content() {
     fi
 }
 
-check_content "runtime/flexicache.c" "flexicache_init" "flexicache_init() 函数存在"
-check_content "runtime/flexicache.c" "flexicache_load_block" "flexicache_load_block() 函数存在"
-check_content "runtime/flexicache.h" "CALL_MANAGED" "CALL_MANAGED 宏定义存在"
-check_content "scripts/flexicache.ld" "IMEM" "链接脚本定义 IMEM"
-check_content "scripts/flexicache.ld" "DRAM" "链接脚本定义 DRAM"
-check_content "src/main.c" "_start" "_start 启动函数存在"
-check_content "src/main.c" "fibonacci" "测试函数 fibonacci 存在"
-check_content "Makefile" "QEMU" "Makefile 包含 QEMU 配置"
+check_content "runtime/flexicache.c" "flexicache_init" "flexicache_init() function exists"
+check_content "runtime/flexicache.c" "flexicache_load_block" "flexicache_load_block() function exists"
+check_content "runtime/flexicache.h" "CALL_MANAGED" "CALL_MANAGED macro defined"
+check_content "scripts/flexicache.ld" "IMEM" "Linker script defines IMEM"
+check_content "scripts/flexicache.ld" "DRAM" "Linker script defines DRAM"
+check_content "src/main.c" "_start" "_start entry function exists"
+check_content "src/main.c" "fibonacci" "Test function fibonacci exists"
+check_content "Makefile" "QEMU" "Makefile contains QEMU configuration"
 echo ""
 
-# 5. 检查文件大小（确保不是空文件）
-echo "5️⃣  检查文件大小"
+# 5. Check file sizes (ensure not empty files)
+echo "5️⃣  Checking file sizes"
 echo "-------------------"
 
 check_size() {
@@ -98,13 +98,13 @@ check_size() {
     if [ -f "$1" ]; then
         size=$(wc -c < "$1" 2>/dev/null)
         if [ "$size" -gt "$2" ]; then
-            echo -e "${GREEN}✓${NC} $1 (${size} 字节)"
+            echo -e "${GREEN}✓${NC} $1 (${size} bytes)"
             passed_checks=$((passed_checks + 1))
         else
-            echo -e "${YELLOW}⚠${NC} $1 (${size} 字节，可能过小)"
+            echo -e "${YELLOW}⚠${NC} $1 (${size} bytes, may be too small)"
         fi
     else
-        echo -e "${RED}✗${NC} $1 (不存在)"
+        echo -e "${RED}✗${NC} $1 (does not exist)"
     fi
 }
 
@@ -115,25 +115,24 @@ check_size "src/main.c" 3000
 check_size "Makefile" 2000
 echo ""
 
-# 6. 总结
+# 6. Summary
 echo "========================================="
-echo "   检查完成"
+echo "   Check Complete"
 echo "========================================="
 echo ""
-echo -e "通过: ${GREEN}${passed_checks}${NC} / ${total_checks}"
+echo -e "Passed: ${GREEN}${passed_checks}${NC} / ${total_checks}"
 
 if [ $passed_checks -eq $total_checks ]; then
-    echo -e "${GREEN}🎉 所有检查通过！项目已就绪。${NC}"
+    echo -e "${GREEN}🎉 All checks passed! Project is ready.${NC}"
     echo ""
-    echo "下一步："
-    echo "  1. 构建 Docker 镜像: docker build -t flexicache-env ."
-    echo "  2. 进入容器: docker run -it --rm -v \$(pwd):/workspace flexicache-env"
-    echo "  3. 编译运行: make run"
+    echo "Next steps:"
+    echo "  1. Build Docker image: docker build -t flexicache-env ."
+    echo "  2. Enter container: docker run -it --rm -v \$(pwd):/workspace flexicache-env"
+    echo "  3. Compile and run: make run"
     exit 0
 else
-    echo -e "${RED}⚠️  有 $((total_checks - passed_checks)) 项检查失败${NC}"
+    echo -e "${RED}⚠️  $((total_checks - passed_checks)) check(s) failed${NC}"
     echo ""
-    echo "请检查缺失的文件或内容。"
+    echo "Please check missing files or content."
     exit 1
 fi
-
