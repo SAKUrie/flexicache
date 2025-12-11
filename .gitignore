@@ -1,23 +1,14 @@
-# 编译产物
+# Build artifacts
 *.o
 *.elf
 *.bin
 *.map
 *.asm
 
-# 调试文件
-*.gdb
-*.log
-
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
-*.swo
-*~
 
-# macOS
+# OS
 .DS_Store
-
-# Docker 卷挂载可能产生的文件
-.docker/
