@@ -1,0 +1,470 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{float}
+\usepackage{array}
+\usepackage{ragged2e}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{courier}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+% Configure listings for C code
+\lstset{
+    language=C,
+    basicstyle=\footnotesize\ttfamily,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    stringstyle=\color{red},
+    numbers=none,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    backgroundcolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    frame=single,
+    rulecolor=\color{black},
+    tabsize=4,
+    captionpos=b,
+    breaklines=true,
+    breakatwhitespace=false,
+    escapeinside={\%*}{*)},
+    xleftmargin=10pt,
+    xrightmargin=10pt,
+    aboveskip=10pt,
+    belowskip=10pt
+}
+
+% Define a style for linker scripts
+\lstdefinestyle{linkerscript}{
+    language=,
+    basicstyle=\footnotesize\ttfamily,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    frame=single,
+    breaklines=true,
+    xleftmargin=10pt,
+    xrightmargin=10pt
+}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Flexicache: A Software-Managed Cache for Predictable RISC-V Execution}
+
+\author{\IEEEauthorblockN{Lingyi Xu}
+\IEEEauthorblockA{\textit{Department of Computer Science} \\
+\textit{Rice University}\\
+Houston, TX, USA \\
+lx28@rice.edu}
+\and
+\IEEEauthorblockN{Fei Teng}
+\IEEEauthorblockA{\textit{Department of Computer Science} \\
+\textit{Rice University}\\
+Houston, TX, USA \\
+ft28@rice.edu}
+\and
+\IEEEauthorblockN{Jingke Zou}
+\IEEEauthorblockA{\textit{Department of Computer Science} \\
+\textit{Rice University}\\
+Houston, TX, USA \\
+jz180@rice.edu}
+\and
+\IEEEauthorblockN{Zhiyuan Lin}
+\IEEEauthorblockA{\textit{Department of Computer Science} \\
+\textit{Rice University}\\
+Houston, TX, USA \\
+zl212@rice.edu}
+}
+
+\maketitle
+
+\begin{abstract}
+Timing predictability is essential in real-time embedded systems, particularly for safety-critical applications such as medical sensors. Conventional hardware caches introduce non-deterministic behavior (e.g., conflict or capacity misses), which complicates Worst-Case Execution Time (WCET) analysis and certification. This project, Flexicache, aims to eliminate that unpredictability by replacing the hardware-managed cache with a software-managed instruction memory system built upon an on-chip Scratchpad Memory (SPM, or I-Mem). The proposed architecture consists of two major components: a static Preprocessor, responsible for binary analysis and code rewriting, and a dynamic Runtime Library for instruction paging between DRAM and the I-Mem. This report presents our preliminary investigation, system architecture, and a three-week prototype implementation plan toward achieving fully predictable instruction execution on the RISC-V platform.
+\end{abstract}
+
+\begin{IEEEkeywords}
+software-managed cache, scratchpad memory, instruction caching, RISC-V, real-time systems, worst-case execution time, binary rewriting, embedded systems, predictable execution
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+A fundamental conflict exists in modern embedded system design between performance and predictability. On one hand, processor cores (like RISC-V) far outpace main memory (DRAM), necessitating caches to bridge the performance gap. On the other hand, systems for safety-critical applications, such as wearable medical sensors, must provide statically verifiable Worst-Case Execution Time (WCET) guarantees. The conventional hardware cache lies at the heart of this conflict. While it improves average-case performance, its non-deterministic behavior (e.g., conflict misses) introduces significant timing variability, making static WCET guarantees exceptionally difficult to derive. This often results in highly pessimistic (i.e., loose) WCET bounds, leading to severe under-utilization of system resources \cite{gracioli2015}.
+
+As categorized in the literature \cite{gracioli2015}, two principal paths have been explored to resolve this. The first path is \textit{software-assisted} hardware, such as the cache locking techniques proposed by Jain et al. \cite{jain2001}, where software "guides" the hardware cache to retain critical contents. The second path, which is the focus of this project, is \textit{software-managed} memory, which discards the hardware cache entirely in favor of a software-controlled Scratchpad Memory (SPM).
+
+Our Flexicache project squarely follows this second path. We posit that for our target application—a medical sensor where absolute timing predictability is the paramount design constraint—the SPM approach is the superior choice. As demonstrated by Wuytack et al. in their pioneering work on software-based instruction caching \cite{wuytack1999}, this method grants the software full control over memory layout and scheduling, which is essential for WCET analysis. Driven by this need, the goal of this project is to design and implement the two core components of Flexicache: a Preprocessor for compile-time static analysis, and a Runtime Library for dynamic run-time paging. This report details our preliminary investigation and implementation plan.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{Flexicache System Overview.png}
+    \caption{Flexicache system overview. The user's program is compiled and linked into a single object file. A preprocessor modifies it for I-caching and it is linked with the runtime system library. At runtime, the complete binary is loaded into DRAM and the runtime system is copied to I-mem. The runtime system then fetches blocks from DRAM as needed.}
+    \label{fig:system_overview}
+\end{figure}
+
+\section{Project Overview and Motivation}
+
+\subsection{Project Goals}
+
+The Flexicache project aims to implement a fully functional software-managed instruction cache for RISC-V embedded systems, addressing the critical need for timing predictability in real-time applications. Our concrete deliverables include: (1) a complete runtime library implementing dynamic code paging with cache hit detection, (2) a comprehensive test suite demonstrating cache behavior across diverse workloads, (3) detailed documentation of the memory partitioning strategy and API design, and (4) performance metrics validating the feasibility of software-managed caching.
+
+\subsection{Motivation and Scope}
+
+We selected this project based on our collective interest in exploring the trade-offs between performance and predictability in real-time embedded systems. This project offers a unique opportunity to gain hands-on experience at the intersection of three key computer science domains that align with our academic pursuits: compiler design (the Preprocessor), runtime systems (the Runtime Library), and computer architecture (the RISC-V platform).
+
+Unlike a purely theoretical study, the Flexicache concept challenges us to implement the cache in software, transferring complex, non-deterministic control logic from hardware to deterministic, verifiable software management. Furthermore, the target application of safety-critical systems, such as the medical sensor mentioned in our abstract, provides a tangible, real-world context for our work. Learning how to provide provable WCET guarantees is a fundamental skill for systems where reliability is paramount.
+
+\subsection{Technical Approach}
+
+Our implementation leverages the QEMU RISC-V virtual platform, which allows us to experiment with custom memory layouts without requiring physical hardware. We employ a Docker-based development environment to ensure reproducibility, incorporating the complete RISC-V toolchain (gcc, binutils, gdb) and QEMU emulator. The project is structured around bare-metal programming—no operating system overhead—enabling direct control over instruction execution and memory access patterns. This approach provides the clean slate necessary to validate our software-managed caching concept.
+
+\section{PRELIMINARY INVESTIGATION}
+
+The primary challenge in employing cache mechanisms within real-time embedded systems, such as the target wearable medical sensor, is the mitigation of unpredictable timing behavior. Conventional hardware-managed caches introduce non-determinism, primarily through conflict and capacity misses, which complicates the static analysis required to derive a sound and tight Worst-Case Execution Time (WCET) \cite{gracioli2015}. An investigation into the literature reveals two principal schools of thought for addressing this challenge in single-core architectures, as categorized by Gracioli et al. \cite{gracioli2015}.
+
+The first approach is Software-Assisted Cache Management, which seeks to assist rather than replace existing hardware caches. Techniques in this category, such as those proposed by Jain et al. \cite{jain2001}, focus on software-guided replacement policies. The most prominent of these is Cache Locking, wherein the software (e.g., a real-time operating system or runtime) can programmatically load critical code or data sections into the cache and "lock" them, preventing the hardware's replacement logic (e.g., Least Recently Used or LRU) from evicting them. This hybrid method guarantees the predictability of critical sections while allowing non-critical tasks to utilize the cache dynamically. However, it relies on specific hardware support, which may not be available in all low-cost microprocessors.
+
+The second approach, which forms the theoretical basis for this project, is Software-Managed Scratchpad Memory (SPM). This paradigm replaces the non-deterministic hardware cache entirely with a directly-addressable, on-chip SRAM, often referred to as a Scratchpad Memory (SPM) or Tightly-Coupled Memory (TCM). As demonstrated by Miller et al. \cite{miller2006}, managing an SPM via software—though focused in their work on data caching—confers significant advantages in performance, energy efficiency, and, most critically, perfect predictability. The access time to an SPM is fixed and deterministic, as the concepts of "hit" or "miss" are eliminated. Management is handled explicitly by software, typically a combination of static (compile-time) analysis and a dynamic (run-time) overlay system.
+
+Our Flexicache project (Fig.~\ref{fig:system_overview}) directly aligns with this second paradigm. We aim to apply the principles of software-managed SPM to the domain of instruction caching for a RISC-V processor. Our system architecture, consisting of a Flexicache Preprocessor and a Flexicache Runtime Library, corresponds directly to the static analysis and dynamic management components requisite for an SPM-based system. The Preprocessor will perform static analysis on the program binary to identify control flow and partition the code, while the Runtime Library will manage the dynamic paging of instruction blocks from off-chip DRAM to the on-chip I-Mem (our designated SPM), thereby ensuring predictable execution timing for the embedded application.
+
+\section{SYSTEM DESIGN}
+\label{sec:design}
+
+This section presents the core architecture and implementation details of our Flexicache prototype, focusing on Phase 1: the Runtime Library. Our system consists of three key components: memory partitioning, the runtime library, and the linking infrastructure.
+
+\subsection{Memory Partitioning Strategy}
+
+The foundation of Flexicache is a carefully designed memory layout that divides the available DRAM into two logical regions, mimicking a processor with separate instruction memory (I-Mem) and data memory (DRAM). On the QEMU RISC-V virt platform, physical RAM starts at address \texttt{0x80000000}. We partition this into:
+
+\begin{itemize}[nosep]
+    \item \textbf{I-Mem (Instruction Memory):} \texttt{0x80000000} -- \texttt{0x800FFFFF} (1MB)
+    \item \textbf{DRAM (Data/Code Storage):} \texttt{0x80100000} -- \texttt{0x801FFFFF} (1MB)
+\end{itemize}
+
+This partitioning is enforced through a custom linker script (\texttt{flexicache.ld}) that places the runtime library code in I-Mem and user application code in DRAM. The linker script defines two memory regions and maps different code sections accordingly:
+
+\begin{lstlisting}[style=linkerscript, caption={Memory partitioning in custom linker script}]
+MEMORY {
+    IMEM (rwx) : ORIGIN = 0x80000000, LENGTH = 1M
+    DRAM (rwx) : ORIGIN = 0x80100000, LENGTH = 1M
+}
+SECTIONS {
+    .text.runtime : { runtime/*.o(.text) } > IMEM
+    .text.user : { src/*.o(.text) } > DRAM
+    ...
+}
+\end{lstlisting}
+
+This ensures that the runtime "paging engine" resides permanently in fast I-Mem, while user functions start in slow DRAM and are paged in on demand.
+
+\subsection{Runtime Library Core Algorithm}
+
+The runtime library implements the dynamic instruction paging mechanism. Its primary data structure is a simple allocator that tracks available space in I-Mem:
+
+\begin{lstlisting}[caption={I-Mem allocator data structure}]
+typedef struct {
+    void *start;         // Next free address
+    size_t available;    // Remaining space
+} imem_allocator_t;
+\end{lstlisting}
+
+The core algorithm is the \texttt{flexicache\_load\_block()} function, which implements a demand-paging strategy:
+
+\begin{lstlisting}[caption={Core demand-paging algorithm}]
+int flexicache_load_block(void *func_addr, size_t size) {
+    // 1. Check if already in I-Mem (cache hit)
+    if (is_in_imem(func_addr)) {
+        stats.hit_count++;
+        return 0;
+    }
+    
+    // 2. Check if eviction is needed
+    if (imem_alloc.available < size) {
+        if (flexicache_evict_block(size) != 0)
+            return -1;  // Eviction failed
+    }
+    
+    // 3. Copy code from DRAM to I-Mem
+    void *dest = imem_alloc.start;
+    memcpy(dest, func_addr, size);
+    
+    // 4. Update allocator and statistics
+    imem_alloc.start += size;
+    imem_alloc.available -= size;
+    stats.load_count++;
+    stats.miss_count++;
+    stats.total_bytes += size;
+    
+    // 5. Flush instruction cache (RISC-V fence.i)
+    asm volatile("fence.i");
+    
+    return 0;
+}
+\end{lstlisting}
+
+This algorithm ensures that: (1) every function call checks if the code is already loaded (predictable hit/miss behavior), (2) space is reclaimed when needed via eviction, and (3) the RISC-V instruction cache is properly flushed after code modification.
+
+\subsection{Startup and Integration}
+
+The system bootstrap sequence is carefully designed to avoid undefined behavior. The \texttt{\_start} function, written in inline assembly, must set up the stack pointer before any C code executes:
+
+\begin{lstlisting}[caption={Bootstrap assembly code}]
+void _start(void) __attribute__((naked));
+void _start(void) {
+    asm volatile (
+        "la sp, __stack_top\n"  // Initialize SP first
+        "call main\n"           // Then call C code
+        "1: j 1b\n"             // Infinite loop
+    );
+}
+\end{lstlisting}
+
+User code invokes managed functions via the \texttt{CALL\_MANAGED} macro, which wraps the function call with a load operation:
+
+\begin{lstlisting}[caption={Managed function call macro}]
+#define CALL_MANAGED(func, ...) ({ \
+    flexicache_load_block((void*)func, 256); \
+    func(__VA_ARGS__); \
+})
+\end{lstlisting}
+
+In a complete system, the Preprocessor would automatically insert these calls during binary rewriting. For this prototype, we use the macro to simulate preprocessor behavior.
+
+\section{IMPLEMENTATION DETAILS}
+
+\subsection{Development Environment}
+
+We developed Flexicache using a containerized workflow to ensure reproducibility across team members' machines. The Docker image (based on Ubuntu 22.04) includes \texttt{gcc-riscv64-unknown-elf} for cross-compilation, \texttt{qemu-system-misc} for RISC-V emulation, and \texttt{gdb-multiarch} for debugging. This environment allows any developer to build and test the system with a single \texttt{docker run} command, eliminating "works on my machine" issues common in embedded development.
+
+\subsection{Build System}
+
+Our Makefile automates the entire build pipeline: compiling the runtime library and user code separately, linking them with our custom linker script, generating the final ELF binary, and extracting a raw binary image. Key targets include \texttt{make run} for QEMU execution, \texttt{make debug} for GDB-based debugging, and \texttt{make disasm} for inspecting the generated assembly. The build system tracks dependencies correctly, rebuilding only changed components.
+
+\subsection{Debugging and Validation}
+
+Debugging bare-metal RISC-V code presented unique challenges. We relied heavily on UART output (via QEMU's virtual serial port) for printf-style debugging, as traditional debugging tools are unavailable without an OS. The \texttt{flexicache\_print\_stats()} function proved invaluable for verifying cache behavior. We also generated disassembly listings (\texttt{.asm} files) to manually verify that the linker placed code in the correct memory regions and that function addresses matched our expectations.
+
+\subsection{Testing Methodology}
+
+Our test suite was designed to systematically exercise cache behavior. We began with simple tests (single function calls) to verify basic paging functionality, then progressed to multi-phase tests with deliberate repetition to trigger cache hits. Each test function has a known correct output, enabling automatic validation. The five-phase test structure (initial load, repeat calls, new functions, mixed access, verification) provides comprehensive coverage of cache hit, miss, and mapping table management.
+
+Example test functions include recursive algorithms (Fibonacci, factorial), iterative computations (power, GCD), and array operations (sum), deliberately chosen to represent diverse execution patterns:
+
+\begin{lstlisting}[caption={Representative test functions}]
+int fibonacci(int n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+int power(int base, int exp) {
+    int result = 1;
+    for (int i = 0; i < exp; i++) {
+        result *= base;
+    }
+    return result;
+}
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+\end{lstlisting}
+
+\section{RESULTS}
+\label{sec:results}
+
+We successfully implemented and validated Phase 1 of the Flexicache system with advanced cache hit/miss detection. The prototype was tested on QEMU's RISC-V 32-bit virt machine with eight distinct test functions across 16 function calls, demonstrating real cache behavior including hits, misses, and predictable execution.
+
+\subsection{Enhanced Test Suite Design}
+
+To properly evaluate cache performance, we designed a five-phase test suite:
+
+\begin{itemize}[nosep]
+\item \textbf{Phase 1 (Initial Load):} Call three functions (\texttt{fibonacci}, \texttt{factorial}, \texttt{power}) for the first time—expected misses.
+\item \textbf{Phase 2 (Hit Verification):} Repeat the same three functions—expected hits demonstrating cache effectiveness.
+\item \textbf{Phase 3 (Expansion):} Load three new functions (\texttt{sum\_array}, \texttt{gcd}, \texttt{is\_prime})—expected misses.
+\item \textbf{Phase 4 (Mixed Access):} Alternate between previously loaded and new functions—mixed hits/misses.
+\item \textbf{Phase 5 (Hit Confirmation):} Call functions from Phase 3 again—expected hits confirming retention.
+\end{itemize}
+
+This design tests the core cache behavior: cold misses, warm hits, and cache persistence across multiple access patterns.
+
+\subsection{Functional Verification}
+
+The system output demonstrates correct cache hit detection and instruction paging (excerpts):
+
+\begin{lstlisting}[style=linkerscript, caption={Sample execution output showing cache behavior}]
+=== Round 1: Initial loads ===
+[1.1] fibonacci(10) - expect miss
+[FlexiCache] Loading block: 0x80100238 -> 0x80010000
+Result: 55
+
+=== Round 2: Repeat calls ===
+[2.1] fibonacci(12) - expect hit
+[FlexiCache] Cache hit!
+Result: 144
+
+=== Round 4: Mixed calls ===
+[4.1] fibonacci(8) - expect hit
+[FlexiCache] Cache hit!
+Result: 21
+[4.2] multiply(12, 7) - expect miss
+[FlexiCache] Loading block: 0x8010009C -> 0x80010600
+Result: 84
+\end{lstlisting}
+
+All 16 tests executed correctly, with cache hits and misses occurring exactly as predicted by our test design.
+
+\subsection{Performance Statistics}
+
+The runtime library's mapping table mechanism successfully tracked all cached blocks:
+
+\begin{table}[!t]
+\caption{Cache Performance Statistics}
+\label{tab:performance}
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Total Function Calls & 16 \\
+Load Count (Unique Functions) & 8 \\
+Cache Hit Count & 8 \\
+Cache Miss Count & 8 \\
+Hit Rate & 50.0\% \\
+Eviction Count & 0 \\
+Total Bytes Transferred & 2048 (0x800) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+As shown in Table~\ref{tab:performance}, these statistics demonstrate: (1) \textbf{accurate hit detection}—the 50\% hit rate matches our test design perfectly, (2) \textbf{zero false misses}—every repeated function call correctly identified as a hit, (3) \textbf{efficient memory use}—only 2KB transferred for 16 function calls, and (4) \textbf{no evictions}—I-Mem capacity sufficient for the working set.
+
+\subsection{Key Achievements}
+
+Our Phase 1 implementation successfully demonstrates:
+
+\begin{itemize}[nosep]
+\item \textbf{Accurate Cache Hit Detection:} The mapping table mechanism correctly identifies repeated function calls, achieving a 50\% hit rate across 16 calls with zero false positives or negatives.
+
+\item \textbf{Predictable Execution:} Every function call follows a deterministic path—table lookup, load on miss, execute. Cache behavior is fully deterministic with no hardware randomness.
+
+\item \textbf{Correct Memory Partitioning:} The linker script successfully isolates runtime code (I-Mem) from user code (DRAM), verified through both the memory map and observed load addresses.
+
+\item \textbf{Functional Instruction Paging:} The system reliably copies code blocks from DRAM (e.g., \texttt{0x80100238}) to I-Mem (e.g., \texttt{0x80010000}) and executes them correctly, handling eight distinct functions.
+
+\item \textbf{Stateful Cache Management:} A 64-entry mapping table tracks DRAM-to-I-Mem mappings, enabling efficient hit detection and laying groundwork for sophisticated replacement policies.
+
+\item \textbf{WCET Foundation:} With explicit load operations, bounded table lookups ($O(n)$ where $n \leq 64$), and no hardware variability, the system provides a solid foundation for tight WCET analysis.
+\end{itemize}
+
+The prototype validates the core thesis: software-managed instruction caching with explicit mapping tables is both feasible and provides the timing predictability essential for safety-critical real-time systems.
+
+\section{LESSONS LEARNED}
+
+\subsection{Technical Insights}
+
+Developing Flexicache taught us several important lessons about low-level systems programming. First, bare-metal development requires meticulous attention to initialization order—setting the stack pointer before executing any C code is non-negotiable. Second, the distinction between physical memory addresses and logical memory regions is crucial when implementing software caching. Third, cache hit detection requires explicit state tracking (our mapping table), which hardware caches handle transparently but software must implement explicitly.
+
+\subsection{Development Challenges}
+
+We encountered several challenges during implementation. Initially, our test program crashed due to incorrect stack initialization, teaching us the importance of naked functions and inline assembly for bootstrap code. Debugging without an operating system forced us to develop alternative strategies, primarily UART-based printf debugging. We also learned that QEMU's RISC-V virt machine requires the \texttt{-bios none} flag for bare-metal programs, a detail not obvious from documentation.
+
+\subsection{Team Collaboration}
+
+This project reinforced the value of version control, containerization, and clear documentation. Our Docker-based environment ensured all team members could reproduce builds identically. The modular design—separating runtime library, linker script, and test code—allowed parallel development and simplified debugging. Regular code reviews helped catch subtle bugs, such as missing cache flushes after code loading.
+
+\section{FUTURE WORK}
+
+While Phase 1 successfully demonstrates functional software-managed caching, significant work remains to realize the full Flexicache vision:
+
+\textbf{Phase 2: Preprocessor Development.} The next step is implementing the static analysis component. This involves parsing ELF binaries to extract control-flow graphs (CFGs), identifying function boundaries, and computing optimal code block sizes based on I-Mem capacity. The preprocessor will automatically insert load calls at function entries, eliminating the manual \texttt{CALL\_MANAGED} macros.
+
+\textbf{Phase 3: Intelligent Eviction Policies.} Our current "flush all" eviction strategy is simple but inefficient. A production system should implement LRU (Least Recently Used) or working-set-based policies to minimize evictions. This requires tracking access timestamps in the mapping table and implementing a priority queue for eviction candidates.
+
+\textbf{WCET Analysis Integration.} The ultimate goal is integrating Flexicache with WCET analysis tools. Since our system has bounded execution paths (table lookups are O(n) with n $\leq$ 64, memcpy is O(size)), WCET bounds can be computed statically. This would enable formal verification of real-time guarantees.
+
+\textbf{Multi-Level Caching.} For larger programs, a two-level scheme (L1 SPM + L2 software cache in DRAM) could balance capacity and performance. The runtime library would manage both levels, paging between DRAM, L2, and L1 as needed.
+
+\section{CONCLUSION}
+\label{sec:conclusion}
+
+This report presented our investigation, design, and Phase 1 implementation of Flexicache, a software-managed instruction memory system for embedded RISC-V platforms. By following the established paradigm of software-managed Scratchpad Memories (SPMs) \cite{miller2006, gracioli2015}, Flexicache eliminates the non-determinism inherent to hardware caches while maintaining performance through explicit instruction paging.
+
+We successfully implemented a complete Runtime Library demonstrating functional code paging with accurate cache hit detection across 16 function calls, achieving a 50\% hit rate. The system correctly partitions memory, loads code blocks on demand, tracks detailed performance statistics, and executes all test functions with perfect accuracy. Our implementation includes a 64-entry mapping table for hit detection, a simple but effective allocator for I-Mem management, and comprehensive test coverage validating the core concept.
+
+The project validates that software-managed instruction caching is both feasible and provides the timing predictability essential for safety-critical real-time systems. Through this work, we gained practical experience in bare-metal programming, RISC-V architecture, linker scripts, and the challenges of developing verifiable real-time systems. The complete source code, documentation, and reproducible Docker environment are available in our project repository for further research and development.
+
+Future work will focus on developing the Preprocessor for automatic binary analysis and implementing intelligent eviction policies, ultimately enabling a fully autonomous system with formal WCET guarantees. This project demonstrates that predictable execution is achievable through careful co-design of compiler infrastructure, runtime systems, and processor architecture.
+
+\section*{Acknowledgment}
+
+This work was conducted as part of the COMP 554 course at Rice University. We thank our instructors and peers for their valuable feedback and support throughout the project development.
+
+\section*{Data and Code Availability}
+
+All source code, build scripts, test programs, and documentation for this project are publicly available at \texttt{https://github.com/SAKUrie/flexicache}. The repository includes complete runtime library implementation, custom linker scripts, comprehensive test suite, Docker environment with RISC-V toolchain and QEMU, automated build system, and detailed documentation. The repository provides a fully reproducible development environment for researchers and developers interested in software-managed caching.
+
+\begin{thebibliography}{00}
+
+\bibitem{miller2006}
+J.~L.~Miller, A.~Porterfield, and R.~Fowler, 
+``A design and sizing methodology for a software-managed data cache,'' 
+in \emph{Proc. 12th Int. Conf. on Architectural Support for Programming Languages and Operating Systems (ASPLOS)}, 
+San Jose, CA, USA, Oct. 2006, pp.~288--297.
+
+\bibitem{wuytack1999}
+S.~Wuytack, F.~Catthoor, F.~Balasa, L.~Nachtergaele, and H.~De~Man,
+``Software-based instruction caching for embedded processors,''
+\emph{IEEE Trans. Very Large Scale Integration (VLSI) Systems}, 
+vol.~7, no.~1, pp.~105--109, Mar. 1999.
+
+\bibitem{patterson2017}
+D.~Patterson and A.~Waterman, 
+\emph{The RISC-V Reader: An Open Architecture Atlas}, 
+1st~ed. Strawberry Canyon, 2017.
+
+\bibitem{huneycutt2002}
+C.~M.~Huneycutt, J.~B.~Fryman, and K.~M.~Mackenzie,
+``Software caching using dynamic binary rewriting for embedded devices,'' 
+in \emph{Proc. Int. Conf. on Parallel Processing (ICPP)}, 
+Vancouver, BC, Canada, 2002, pp.~621--630.
+
+\bibitem{alam2016}
+S.~Alam and N.~Horspool, 
+``A survey: Software-managed on-chip memories,'' 
+\emph{Comput. Inform.}, 
+vol.~34, no.~5, pp.~1168--1200, Mar. 2016.
+
+\bibitem{jain2001}
+P.~Jain, S.~Devadas, D.~Engels, and L.~Rudolph, 
+``Software-assisted cache replacement mechanisms for embedded systems,'' 
+in \emph{Proc. IEEE/ACM Int. Conf. on Computer-Aided Design (ICCAD)}, 
+San Jose, CA, USA, 2001, pp.~119--126.
+
+\bibitem{gracioli2015}
+G.~Gracioli, A.~Biondi, H.~Xiong, M.~Di~Natale, L.~Thiele, and L.~Marzario, 
+``A survey on cache management mechanisms for real-time embedded systems,'' 
+\emph{ACM Computing Surveys (CSUR)}, 
+vol.~48, no.~2, pp.~1--36, Nov. 2015.
+
+\end{thebibliography}
+
+\end{document}
