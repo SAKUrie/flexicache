@@ -65,28 +65,21 @@
 \title{Flexicache: A Software-Managed Cache for Predictable RISC-V Execution}
 
 \author{\IEEEauthorblockN{Lingyi Xu}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{Rice University}\\
-Houston, TX, USA \\
+\IEEEauthorblockA{
 lx28@rice.edu}
 \and
 \IEEEauthorblockN{Fei Teng}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{Rice University}\\
-Houston, TX, USA \\
+\IEEEauthorblockA{
 ft28@rice.edu}
 \and
 \IEEEauthorblockN{Jingke Zou}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{Rice University}\\
-Houston, TX, USA \\
+\IEEEauthorblockA{
 jz180@rice.edu}
 \and
 \IEEEauthorblockN{Zhiyuan Lin}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{Rice University}\\
-Houston, TX, USA \\
+\IEEEauthorblockA{
 zl212@rice.edu}
+
 }
 
 \maketitle
@@ -381,27 +374,23 @@ The prototype validates the core thesis: software-managed instruction caching wi
 
 \subsection{Technical Insights}
 
-Developing Flexicache taught us several important lessons about low-level systems programming. First, bare-metal development requires meticulous attention to initialization order—setting the stack pointer before executing any C code is non-negotiable. Second, the distinction between physical memory addresses and logical memory regions is crucial when implementing software caching. Third, cache hit detection requires explicit state tracking (our mapping table), which hardware caches handle transparently but software must implement explicitly.
+During the development of \textit{Flexicache}, we gained substantial experience in low-level system programming. First, bare-metal development imposes extremely strict requirements on the initialization order; in particular, the stack pointer must be correctly set before executing any C code. Second, when implementing a software cache, it is necessary to clearly distinguish between physical memory addresses and logical memory regions. Third, the cache at the software level must be explicitly designed and implemented, rather than being implicitly provided by the system.
+
 
 \subsection{Development Challenges}
 
-We encountered several challenges during implementation. Initially, our test program crashed due to incorrect stack initialization, teaching us the importance of naked functions and inline assembly for bootstrap code. Debugging without an operating system forced us to develop alternative strategies, primarily UART-based printf debugging. We also learned that QEMU's RISC-V virt machine requires the \texttt{-bios none} flag for bare-metal programs, a detail not obvious from documentation.
+During the implementation process, we initially encountered a stack initialization error that caused the test program to crash. This issue highlighted the importance of using bare functions and inline assembly during the boot phase. Consequently, in the absence of operating system support, we ultimately adopted a UART-based \texttt{printf} debugging approach for effective debugging.
+
 
 \subsection{Team Collaboration}
 
-This project reinforced the value of version control, containerization, and clear documentation. Our Docker-based environment ensured all team members could reproduce builds identically. The modular design—separating runtime library, linker script, and test code—allowed parallel development and simplified debugging. Regular code reviews helped catch subtle bugs, such as missing cache flushes after code loading.
+Throughout the entire process, we clearly recognized the importance of version control, containerization, and clear documentation. The Docker-based development environment ensured that all team members could produce consistent build results. Regular code reviews also helped us identify criticthe some issues, such as missing cache refresh operations after code loading.
+
 
 \section{FUTURE WORK}
 
-While Phase 1 successfully demonstrates functional software-managed caching, significant work remains to realize the full Flexicache vision:
+Although we have successfully verified and implemented the software-managed memory mechanism, \textit{Flexicache} still requires further improvements in other aspects. For example, future work includes introducing a preprocessor to perform static analysis on ELF binaries in order to automatically insert loading logic, designing more efficient cache eviction strategies (such as LRU or working set models) to reduce unnecessary refresh operations, and integrating the system with WCET analysis tools to support worst-case execution time bound analysis for real-time systems. In addition, for larger programs, it is necessary to carefully balance cache capacity and system performance.
 
-\textbf{Phase 2: Preprocessor Development.} The next step is implementing the static analysis component. This involves parsing ELF binaries to extract control-flow graphs (CFGs), identifying function boundaries, and computing optimal code block sizes based on I-Mem capacity. The preprocessor will automatically insert load calls at function entries, eliminating the manual \texttt{CALL\_MANAGED} macros.
-
-\textbf{Phase 3: Intelligent Eviction Policies.} Our current "flush all" eviction strategy is simple but inefficient. A production system should implement LRU (Least Recently Used) or working-set-based policies to minimize evictions. This requires tracking access timestamps in the mapping table and implementing a priority queue for eviction candidates.
-
-\textbf{WCET Analysis Integration.} The ultimate goal is integrating Flexicache with WCET analysis tools. Since our system has bounded execution paths (table lookups are O(n) with n $\leq$ 64, memcpy is O(size)), WCET bounds can be computed statically. This would enable formal verification of real-time guarantees.
-
-\textbf{Multi-Level Caching.} For larger programs, a two-level scheme (L1 SPM + L2 software cache in DRAM) could balance capacity and performance. The runtime library would manage both levels, paging between DRAM, L2, and L1 as needed.
 
 \section{CONCLUSION}
 \label{sec:conclusion}
